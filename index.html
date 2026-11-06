@@ -45,6 +45,7 @@
   --btn:#1e262e; --btnline:#323e49; --chip:#28323c; --good:#6fd39a; color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important} /* .modal/.overlay/.field set display, which would otherwise override the hidden attribute */
 html{-webkit-text-size-adjust:100%; text-size-adjust:100%}
 body{
   margin:0; min-height:100vh;
