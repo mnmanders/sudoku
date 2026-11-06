@@ -1,0 +1,1302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pencil Sudoku</title>
+<meta name="description" content="Sudoku in pencil: five levels, shareable puzzle codes, and a record that syncs between your devices.">
+<!-- Installable web app (iPhone/iPad: Share → Add to Home Screen) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sudoku">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#e9eef1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12171c" media="(prefers-color-scheme: dark)">
+<!-- Account sync: config.js holds your Supabase project URL + public key; the library loads async so the game never waits on it -->
+<script src="config.js"></script>
+<script id="sbjs" async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Kalam:wght@400;700&display=swap">
+<style>
+/* Layout: graph-paper puzzle page — board as the hero, tools in a side rail on wide screens, stacked below on phones; scorecard underneath */
+:root{
+  --paper:#e9eef1; --cell:#f8fafb; --line:#c3ced6; --rule:#1f2a35;
+  --ink:#1f2a35; --muted:#5d6b78; --pencil:#2f56b0; --mark:#ffe17a;
+  --peer:#e1e8ee; --same:#fbefb8; --bad:#c23a2b; --badbg:#fbe1dc;
+  --btn:#ffffff; --btnline:#cdd6dd; --chip:#dbe4ea; --good:#2c7a4b;
+  --f-display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-given:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --f-pencil:"Kalam", "Comic Neue", "Segoe Print", "Bradley Hand", cursive;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#12171c; --cell:#1b2229; --line:#2c3742; --rule:#8a9bab;
+  --ink:#e4eaef; --muted:#93a2b0; --pencil:#8fb2ff; --mark:#5e4f12;
+  --peer:#222b34; --same:#3e3714; --bad:#ff7d6c; --badbg:#47221d;
+  --btn:#1e262e; --btnline:#323e49; --chip:#28323c; --good:#6fd39a; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --paper:#12171c; --cell:#1b2229; --line:#2c3742; --rule:#8a9bab;
+  --ink:#e4eaef; --muted:#93a2b0; --pencil:#8fb2ff; --mark:#5e4f12;
+  --peer:#222b34; --same:#3e3714; --bad:#ff7d6c; --badbg:#47221d;
+  --btn:#1e262e; --btnline:#323e49; --chip:#28323c; --good:#6fd39a; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%; text-size-adjust:100%}
+body{
+  margin:0; min-height:100vh;
+  background:var(--paper); color:var(--ink); font-family:var(--f-body); font-size:15px;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px; background-position:-1px -1px;
+  background-attachment:fixed;
+}
+.wrap{
+  max-width:880px; margin:0 auto;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-top:max(20px, env(safe-area-inset-top, 0px));
+  padding-bottom:max(40px, env(safe-area-inset-bottom, 0px));
+  display:grid; gap:22px;
+  grid-template-columns:minmax(0,1fr);
+}
+.wrap > *{min-width:0}
+header{display:grid; gap:10px}
+.top{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+h1{font-family:var(--f-display); font-weight:800; font-size:clamp(28px,6vw,40px); letter-spacing:-.02em; margin:0; line-height:1}
+h1 span{font-family:var(--f-pencil); font-weight:700; color:var(--pencil); font-size:.8em; letter-spacing:0; margin-left:4px}
+.who{
+  display:inline-flex; align-items:center; gap:7px; max-width:100%;
+  border:1.5px solid var(--btnline); background:var(--btn); color:var(--ink);
+  border-radius:999px; padding:6px 12px 6px 9px; font:500 13.5px var(--f-body); cursor:pointer;
+}
+.who svg{width:17px; height:17px; flex:none; stroke:var(--pencil); fill:none; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round}
+.who b{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:14ch}
+.who span{color:var(--muted)}
+.meta{display:flex; gap:6px 16px; flex-wrap:wrap; font-family:var(--f-given); font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+.meta b{color:var(--ink); font-weight:600}
+.meta .wrong b{color:var(--bad)}
+.meta .wrong.zero b{color:var(--ink)}
+
+.main{display:grid; gap:18px; grid-template-columns:minmax(0,1fr)}
+@media (min-width:820px){
+  .main{grid-template-columns:minmax(0,520px) minmax(0,1fr); align-items:start}
+}
+
+/* Board */
+.boardwrap{position:relative; width:100%; max-width:520px; margin-inline:auto}
+.board{
+  container-type:inline-size;
+  aspect-ratio:1; max-width:100%; width:100%;
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); gap:3px;
+  background:var(--rule); border:3px solid var(--rule); border-radius:4px;
+  outline:none; user-select:none; -webkit-user-select:none; touch-action:manipulation;
+  box-shadow:0 1px 0 var(--rule), 0 10px 30px -18px rgba(20,30,40,.5);
+}
+.board:focus-visible{outline:3px solid var(--pencil); outline-offset:3px}
+.box{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); gap:1px; background:var(--line); min-width:0; min-height:0}
+.cell{
+  position:relative; background:var(--cell); display:grid; place-items:center; cursor:pointer; min-width:0; min-height:0; overflow:hidden;
+  transition:background-color .12s;
+}
+.cell.peer{background:var(--peer)}
+.cell.same{background:var(--same)}
+.cell.sel{background:var(--mark)}
+.cell.bad .v{color:var(--bad)}
+.cell.bad{background-image:linear-gradient(135deg,transparent 46%,var(--badbg) 46%,var(--badbg) 54%,transparent 54%)}
+.v{font-size:calc(100cqi / 9 * .56); line-height:1; color:var(--pencil); font-family:var(--f-pencil); font-weight:700; transform:translateY(.04em)}
+.cell.given .v{font-family:var(--f-given); font-weight:600; color:var(--ink); transform:none; font-size:calc(100cqi / 9 * .5)}
+.notes{position:absolute; inset:6%; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); pointer-events:none}
+.notes i{font-style:normal; font-family:var(--f-pencil); font-size:calc(100cqi / 9 * .22); line-height:1; color:var(--muted); display:grid; place-items:center}
+.notes i.hit{color:var(--ink); font-weight:700}
+.cell.flash{animation:flash .7s ease-out}
+@keyframes flash{0%{background:var(--pencil)}100%{}}
+.cell.pop .v{animation:pop .18s ease-out}
+@keyframes pop{0%{transform:scale(.6)}100%{transform:scale(1)}}
+
+.overlay{
+  position:absolute; inset:0; display:grid; place-items:center; padding:16px;
+  background:color-mix(in srgb, var(--paper) 78%, transparent); backdrop-filter:blur(2px); border-radius:4px;
+}
+.card{background:var(--btn); border:2px solid var(--rule); border-radius:6px; padding:22px 24px; max-width:320px; width:100%; display:grid; gap:10px; text-align:left}
+.card h2{font-family:var(--f-display); font-weight:800; margin:0; font-size:30px; letter-spacing:-.02em; text-wrap:balance}
+.card p{margin:0; color:var(--muted); line-height:1.5}
+.card p b{color:var(--ink); font-family:var(--f-given); font-weight:600}
+.best{font:600 12px var(--f-body); letter-spacing:.06em; text-transform:uppercase; color:var(--good)}
+.busy{font:700 22px var(--f-pencil); color:var(--pencil); text-align:center}
+
+/* Modals */
+.modal{
+  position:fixed; inset:0; z-index:50; display:grid; place-items:center; overflow-y:auto;
+  padding:max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background:color-mix(in srgb, var(--rule) 45%, transparent);
+}
+.modal .card{max-width:380px; box-shadow:0 20px 50px -20px rgba(0,0,0,.5)}
+.modal h2{font-size:24px}
+.mrow{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px}
+.field{display:grid; gap:6px; font-size:13px; font-weight:600; color:var(--muted)}
+.field input{
+  font:500 17px var(--f-body); color:var(--ink); background:var(--cell);
+  border:1.5px solid var(--btnline); border-radius:8px; padding:10px 12px; width:100%;
+}
+.field input:focus{outline:3px solid color-mix(in srgb, var(--pencil) 40%, transparent); border-color:var(--pencil)}
+.check{display:flex; gap:9px; align-items:flex-start; font-size:14px; line-height:1.4; color:var(--ink)}
+.check input{margin-top:3px; width:16px; height:16px; accent-color:var(--pencil); flex:none}
+.plist{display:flex; flex-wrap:wrap; gap:8px}
+.plist button{border:1.5px solid var(--btnline); background:var(--cell); color:var(--ink); border-radius:999px; padding:7px 14px; font:600 14px var(--f-body); cursor:pointer}
+.plist button:hover{border-color:var(--pencil)}
+.err{color:var(--bad); font-size:13px; margin:0}
+
+/* Side rail */
+.rail{display:grid; gap:16px; max-width:520px; width:100%; margin-inline:auto; min-width:0}
+.label{font-size:11px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:6px}
+.seg{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); background:var(--chip); border-radius:8px; padding:3px; gap:3px}
+.seg button{
+  border:0; background:transparent; color:var(--muted); padding:7px 2px 6px; border-radius:6px;
+  font:600 13px/1.15 var(--f-body); cursor:pointer; display:grid; justify-items:center; gap:4px; min-width:0;
+}
+.seg button[aria-pressed="true"]{background:var(--btn); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.dots{display:inline-flex; gap:2px; flex:none}
+.dots i{width:5px; height:5px; border-radius:50%; background:var(--btnline)}
+.dots i.on{background:var(--pencil)}
+
+.tools{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px}
+.tool{
+  display:grid; justify-items:center; align-content:start; gap:4px; padding:10px 2px 8px; min-width:0;
+  background:var(--btn); color:var(--ink); border:1.5px solid var(--btnline); border-radius:10px;
+  font:500 12px/1.15 var(--f-body); text-align:center; cursor:pointer;
+}
+.tool svg{width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+.tool[aria-pressed="true"]{background:var(--pencil); border-color:var(--pencil); color:var(--cell)}
+.tool:disabled{opacity:.4; cursor:default}
+.tool .state{font-family:var(--f-given); font-size:10px; opacity:.8}
+
+.pad{display:grid; grid-template-columns:repeat(9,1fr); gap:6px}
+@media (min-width:820px){ .pad{grid-template-columns:repeat(3,1fr); gap:8px} .pad button{aspect-ratio:1.25} }
+.pad button{
+  position:relative; aspect-ratio:.8; display:grid; place-items:center;
+  background:var(--btn); color:var(--pencil); border:1.5px solid var(--btnline); border-radius:10px;
+  font:700 clamp(22px,6vw,30px)/1 var(--f-pencil); cursor:pointer; padding:0; min-width:0;
+}
+.pad button small{position:absolute; right:5px; bottom:3px; font:500 10px var(--f-given); color:var(--muted)}
+.pad button.done{opacity:.35}
+.pad.notesmode button{color:var(--muted); font-size:clamp(16px,4.5vw,22px)}
+
+.btn{border:1.5px solid var(--rule); background:var(--rule); color:var(--cell); padding:9px 14px; border-radius:8px; font:600 14px var(--f-body); cursor:pointer}
+.btn.ghost{background:transparent; color:var(--ink); border-color:var(--btnline)}
+.link{border:0; background:none; color:var(--pencil); font:600 13px var(--f-body); cursor:pointer; padding:8px 0 0}
+button:focus-visible{outline:3px solid var(--pencil); outline-offset:2px}
+button:active{transform:translateY(1px)}
+.keys{font-size:12.5px; color:var(--muted); line-height:1.6; max-width:52ch; margin:0}
+.keys kbd{font-family:var(--f-given); font-size:11px; background:var(--chip); border-radius:4px; padding:1px 5px; color:var(--ink)}
+@media (max-width:819px){ .keys{display:none} }
+
+/* Scorecard */
+.record{
+  background:var(--cell); border:1.5px solid var(--btnline); border-radius:12px;
+  padding:20px clamp(14px,3vw,26px) 18px; display:grid; gap:18px; min-width:0; overflow:hidden;
+}
+.record > *, .stack > *, .totals > *{min-width:0}
+.stack{display:grid; gap:22px}
+.rhead{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 16px}
+.rhead h2{font-family:var(--f-display); font-weight:800; font-size:24px; letter-spacing:-.015em; margin:0; overflow-wrap:anywhere}
+.sync{font-size:12.5px; color:var(--muted)}
+.sync::before{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted); margin-right:6px; vertical-align:1px}
+.sync[data-mode="account"]::before{background:var(--good)}
+.sync[data-mode="slow"]::before{background:var(--bad)}
+.pfilter, .pchips{display:flex; flex-wrap:wrap; gap:6px}
+.pfilter button[aria-pressed="true"], .pchips button[aria-pressed="true"]{background:var(--rule); border-color:var(--rule); color:var(--cell)}
+.pfilter button, .pchips button{border:1.5px solid var(--btnline); background:transparent; color:var(--muted); border-radius:999px; padding:5px 12px; font:600 13px var(--f-body); cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pfilter button[aria-pressed="true"]{background:var(--rule); border-color:var(--rule); color:var(--cell)}
+.totals{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:14px 20px; padding-bottom:18px; border-bottom:1.5px dashed var(--btnline)}
+.totals div{display:grid; gap:2px; align-content:start}
+.totals b{font:600 24px/1.1 var(--f-given); font-variant-numeric:tabular-nums}
+.totals span{font-size:12px; color:var(--muted); line-height:1.35}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums}
+th{font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:left; padding:0 8px 8px 0; white-space:nowrap}
+td{padding:9px 8px 9px 0; border-top:1px solid var(--line); white-space:nowrap; font-size:14px}
+th:last-child, td:last-child{padding-right:0}
+td.num, th.num{text-align:right}
+td.num{font-family:var(--f-given); font-size:13.5px}
+td.lvl{display:flex; align-items:center; gap:8px}
+td .dim, td.dim{color:var(--muted)}
+@media (max-width:520px){ .bylevel .dots{display:none} th{letter-spacing:.03em} }
+.sub{font-family:var(--f-display); font-weight:600; font-size:16px; margin:0 0 6px}
+.glist{list-style:none; margin:0; padding:0}
+.glist li{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 12px; padding:10px 0; border-top:1px solid var(--line)}
+.glist .gl{display:flex; align-items:center; gap:8px; font-weight:600; min-width:0}
+.glist .gt{font:600 14px var(--f-given); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+.glist .gm{grid-column:1 / -1; font-size:12.5px; color:var(--muted); line-height:1.4; overflow-wrap:anywhere}
+.tag{font:600 10.5px var(--f-body); letter-spacing:.06em; text-transform:uppercase; color:var(--good); margin-left:6px}
+.empty{color:var(--muted); line-height:1.55; margin:0; max-width:60ch}
+.tag.rp{color:var(--muted)}
+.replay{border:0; background:none; color:var(--pencil); font:600 12.5px var(--f-body); cursor:pointer; padding:0}
+.gcode{font-family:var(--f-given); letter-spacing:.04em; color:var(--ink)}
+
+/* Puzzle code */
+.codebox{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:12px}
+.codebox .label{margin:0}
+.code{font:600 15px var(--f-given); letter-spacing:.06em; user-select:all; -webkit-user-select:all}
+.mini{border:1.5px solid var(--btnline); background:var(--btn); color:var(--ink); border-radius:8px; padding:6px 11px; font:600 13px var(--f-body); cursor:pointer}
+.mini:disabled{opacity:.45; cursor:default}
+.codeform{display:flex; gap:8px; margin-top:8px}
+.codeform input{
+  flex:1 1 auto; min-width:0; font:600 15px var(--f-given); letter-spacing:.06em; text-transform:uppercase;
+  background:var(--btn); color:var(--ink); border:1.5px solid var(--btnline); border-radius:8px; padding:8px 10px;
+}
+.codeform input::placeholder{text-transform:none; letter-spacing:0; font:400 14px var(--f-body); color:var(--muted)}
+.codeform input:focus{outline:3px solid color-mix(in srgb, var(--pencil) 40%, transparent); border-color:var(--pencil)}
+.codemsg{font-size:12.5px; color:var(--muted); margin:6px 0 0}
+.codemsg.err{color:var(--bad)}
+
+/* Progress chart */
+.psum{margin:10px 0 8px; line-height:1.5; max-width:62ch}
+.psum b{font-family:var(--f-given); font-weight:600}
+.chartwrap{position:relative}
+.chart svg{display:block; width:100%; height:auto; overflow:visible; touch-action:manipulation}
+.chart .gl{stroke:var(--line); stroke-width:1}
+.chart .ax{fill:var(--muted); font:11px var(--f-given)}
+.chart .avg{fill:none; stroke:var(--ink); stroke-opacity:.55; stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
+.chart .dot{fill:var(--pencil); stroke:var(--cell); stroke-width:2}
+.chart .dot.h{fill:var(--cell); stroke:var(--pencil)}
+.chart .dot.on{stroke:var(--ink)}
+.chart .lab{fill:var(--ink); font:600 11px var(--f-body)}
+.chart .hit{fill:transparent; cursor:pointer}
+.tip{
+  position:absolute; pointer-events:none; z-index:2; white-space:nowrap;
+  background:var(--rule); color:var(--cell); font:500 12.5px/1.45 var(--f-body);
+  padding:7px 10px; border-radius:6px; transform:translate(-50%, calc(-100% - 12px));
+}
+.tip b{font-family:var(--f-given)}
+.pkey{font-size:12px; color:var(--muted); margin:8px 0 0; display:flex; flex-wrap:wrap; gap:4px 16px; align-items:center}
+.pkey i{display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--pencil); margin-right:6px; vertical-align:-1px}
+.pkey i.h{background:transparent; box-shadow:inset 0 0 0 2px var(--pencil)}
+.pkey i.l{width:16px; height:2px; border-radius:1px; background:var(--ink); opacity:.55; vertical-align:3px}
+.rside{display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px}
+.acctnote{font-size:12.5px; color:var(--muted); margin:0; line-height:1.45}
+@media (prefers-reduced-motion: reduce){ *{animation:none!important; transition:none!important} }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="top">
+      <h1>Sudoku <span>in pencil</span></h1>
+      <button class="who" id="who" type="button" title="Switch player" hidden>
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        <b id="whoName"></b><span>Switch</span>
+      </button>
+    </div>
+    <div class="meta" aria-live="off">
+      <div>Level <b id="level">Medium</b></div>
+      <div>Time <b id="time">0:00</b></div>
+      <div class="wrong zero" id="wrongBox">Wrong <b id="wrong">0</b></div>
+      <div>Hints <b id="hints">0</b></div>
+      <div>Clues <b id="clues">0</b></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="boardwrap">
+      <div class="board" id="board" tabindex="0" role="grid" aria-label="Sudoku board. Use arrow keys to move and number keys to fill."></div>
+      <div class="overlay" id="win" hidden>
+        <div class="card">
+          <div class="best" id="winBest" hidden>New best time</div>
+          <h2>Solved.</h2>
+          <p id="winText"></p>
+          <p id="winSame" hidden></p>
+          <button class="btn" id="again" type="button">Next puzzle</button>
+        </div>
+      </div>
+      <div class="overlay" id="busy" hidden><div class="busy" id="busyText">Drawing a fresh grid…</div></div>
+    </div>
+
+    <div class="rail">
+      <div>
+        <div class="label">New puzzle</div>
+        <div class="seg" id="diff"></div>
+        <div class="codebox">
+          <span class="label">This puzzle</span>
+          <span class="code" id="codeText">—</span>
+          <button class="mini" id="copyCode" type="button">Copy code</button>
+        </div>
+        <form class="codeform" id="codeForm" autocomplete="off" novalidate>
+          <input id="codeIn" type="text" maxlength="12" placeholder="Got a code? e.g. H-4F7KQ2" aria-label="Puzzle code" autocapitalize="characters" spellcheck="false">
+          <button class="mini" type="submit">Play</button>
+        </form>
+        <p class="codemsg" id="codeMsg" hidden></p>
+      </div>
+
+      <div class="tools">
+        <button class="tool" id="undo" type="button" title="Undo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo
+        </button>
+        <button class="tool" id="erase" type="button" title="Erase (Backspace)">
+          <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>Erase
+        </button>
+        <button class="tool" id="notes" type="button" aria-pressed="false" title="Pencil notes (N)">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Notes <span class="state" id="notesState">off</span>
+        </button>
+        <button class="tool" id="clearNotes" type="button" title="Clear every pencil note on the board (undo brings them back)">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h2M14 8h2M8 12h2M14 16h2"/><path d="m4 20 16-16"/></svg>Clear notes
+        </button>
+        <button class="tool" id="hint" type="button" title="Hint (H)">
+          <svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z"/></svg>Hint
+        </button>
+      </div>
+
+      <div class="pad" id="pad"></div>
+
+      <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> fill · <kbd>←↑↓→</kbd> move · <kbd>N</kbd> notes · <kbd>H</kbd> hint · <kbd>⌫</kbd> erase · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo. Placing a number clears it from the notes in its row, column and box.</p>
+    </div>
+  </div>
+
+  <section class="record" aria-labelledby="recTitle">
+    <div class="rhead">
+      <h2 id="recTitle">Your record</h2>
+      <div class="rside">
+        <span class="sync" id="sync" data-mode="local">Saved in this browser</span>
+        <button class="mini" id="acct" type="button" hidden>Sign in to sync</button>
+      </div>
+    </div>
+    <div class="pfilter" id="pfilter" hidden></div>
+    <div id="recBody"></div>
+  </section>
+</div>
+
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle" aria-describedby="mText">
+  <div class="card">
+    <h2 id="mTitle">Start a new puzzle?</h2>
+    <p id="mText"></p>
+    <div class="mrow">
+      <button class="btn ghost" id="no" type="button">Keep playing</button>
+      <button class="btn" id="yes" type="button">Start new puzzle</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="pmodal" hidden role="dialog" aria-modal="true" aria-labelledby="pTitle">
+  <form class="card" id="pform" autocomplete="off" novalidate>
+    <h2 id="pTitle">Who's playing?</h2>
+    <p id="pText">Your name goes on the puzzles you solve, so each player keeps their own record and their own game in progress.</p>
+    <div class="plist" id="plist" hidden></div>
+    <label class="field"><span id="pLabel">Your name</span>
+      <input id="pname" type="text" maxlength="20" autocapitalize="words" spellcheck="false" placeholder="First name or nickname">
+    </label>
+    <label class="check" id="pclaimRow" hidden><input type="checkbox" id="pclaim" checked><span id="pclaimText"></span></label>
+    <p class="err" id="perr" hidden></p>
+    <div class="mrow">
+      <button class="btn ghost" id="pcancel" type="button">Cancel</button>
+      <button class="btn" id="pgo" type="submit">Start playing</button>
+    </div>
+  </form>
+</div>
+
+<div class="modal" id="amodal" hidden role="dialog" aria-modal="true" aria-labelledby="aTitle">
+  <form class="card" id="aform" autocomplete="on" novalidate>
+    <h2 id="aTitle">Sync your record</h2>
+    <p id="aText"></p>
+    <label class="field" id="aEmailRow"><span>Email</span>
+      <input id="aemail" type="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="you@example.com">
+    </label>
+    <label class="field" id="aCodeRow" hidden><span>Code from the email</span>
+      <input id="acode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456">
+    </label>
+    <p class="acctnote" id="aNote" hidden></p>
+    <p class="err" id="aerr" hidden></p>
+    <div class="mrow">
+      <button class="btn ghost" id="aback" type="button" hidden>Use a different email</button>
+      <button class="btn ghost" id="acancel" type="button">Close</button>
+      <button class="btn" id="ago" type="submit">Email me a code</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(() => {
+const KEY = "pencil-sudoku-v1", HKEY = "pencil-sudoku-history-v1", PKEY = "pencil-sudoku-player-v1", PLKEY = "pencil-sudoku-players-v1";
+const gameKey = p => KEY + ":" + p;
+const $ = id => document.getElementById(id);
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
+
+// Levels. Each puzzle is graded by the techniques a human needs:
+// 1 = singles only, 2 = also pointing/claiming and naked pairs, 3 = beyond those.
+const LEVELS = [
+  { key: "easy",     label: "Easy",      target: 38, sym: true,  tries: 40,  ok: r => r.level === 1 },
+  { key: "medium",   label: "Medium",    target: 30, sym: true,  tries: 40,  ok: r => r.level === 1 },
+  { key: "hard",     label: "Hard",      target: 26, sym: true,  tries: 120, ok: r => r.level === 2 },
+  { key: "veryhard", label: "Very hard", target: 24, sym: true,  tries: 120, ok: r => r.level === 3 },
+  { key: "extreme",  label: "Extreme",   target: 0,  sym: false, tries: 260, ok: (r, c) => r.level === 3 && r.left >= 45 && c <= 25 },
+];
+const LV = Object.fromEntries(LEVELS.map((l, i) => [l.key, { ...l, n: i + 1 }]));
+const dots = n => '<span class="dots" aria-hidden="true">' + [1, 2, 3, 4, 5].map(k => `<i class="${k <= n ? "on" : ""}"></i>`).join("") + "</span>";
+
+const row = i => (i / 9) | 0, col = i => i % 9, box = i => ((row(i) / 3) | 0) * 3 + ((col(i) / 3) | 0);
+const PEERS = Array.from({ length: 81 }, (_, i) => {
+  const p = [];
+  for (let j = 0; j < 81; j++) if (j !== i && (row(j) === row(i) || col(j) === col(i) || box(j) === box(i))) p.push(j);
+  return p;
+});
+const UNITS = [];
+for (let k = 0; k < 9; k++) { UNITS.push([...Array(9)].map((_, c) => k * 9 + c)); UNITS.push([...Array(9)].map((_, r) => r * 9 + k)); }
+for (let b = 0; b < 9; b++) UNITS.push([...Array(81).keys()].filter(i => box(i) === b));
+const shuffle = (a, rnd) => { for (let i = a.length - 1; i > 0; i--) { const j = rnd() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// Puzzle codes: level letter + 6 Crockford base-32 characters holding a 30-bit seed.
+// The same code always rebuilds the same puzzle, because generation only uses this seeded generator.
+const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const LETTER = { easy: "E", medium: "M", hard: "H", veryhard: "V", extreme: "X" };
+const FROM_LETTER = Object.fromEntries(Object.entries(LETTER).map(([k, v]) => [v, k]));
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const newSeed = () => { try { return crypto.getRandomValues(new Uint32Array(1))[0] & 0x3FFFFFFF; } catch (e) { return (Math.random() * 0x40000000) >>> 0; } };
+function encodeCode(key, seed) { let s = ""; for (let k = 0; k < 6; k++) { s = B32[seed & 31] + s; seed >>>= 5; } return LETTER[key] + "-" + s; }
+function decodeCode(str) {
+  const t = String(str || "").toUpperCase().replace(/[\s_.]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  const m = t.match(/^([EMHVX])-?([0-9A-HJKMNP-TV-Z]{6})$/); if (!m) return null;
+  let seed = 0; for (const ch of m[2]) seed = seed * 32 + B32.indexOf(ch);
+  return { key: FROM_LETTER[m[1]], seed, code: m[1] + "-" + m[2] };
+}
+const bits = m => { let n = 0; while (m) { m &= m - 1; n++; } return n; };
+const low = m => 31 - Math.clz32(m & -m);
+
+// Backtracking solver: counts solutions up to `limit`; with randomize, fills grid in random order.
+function solve(g, limit, rnd) {
+  const R = new Uint16Array(9), C = new Uint16Array(9), B = new Uint16Array(9);
+  for (let i = 0; i < 81; i++) if (g[i]) {
+    const b = 1 << g[i];
+    if ((R[row(i)] | C[col(i)] | B[box(i)]) & b) return 0;
+    R[row(i)] |= b; C[col(i)] |= b; B[box(i)] |= b;
+  }
+  let count = 0;
+  (function rec() {
+    let best = -1, bestMask = 0, bestN = 10;
+    for (let i = 0; i < 81; i++) if (!g[i]) {
+      const m = ~(R[row(i)] | C[col(i)] | B[box(i)]) & 0x3FE, n = bits(m);
+      if (n < bestN) { best = i; bestMask = m; bestN = n; if (n === 0) return; }
+    }
+    if (best < 0) { count++; return; }
+    let ds = []; for (let d = 1; d <= 9; d++) if (bestMask & (1 << d)) ds.push(d);
+    if (rnd) shuffle(ds, rnd);
+    const r = row(best), c = col(best), x = box(best);
+    for (const d of ds) {
+      const b = 1 << d;
+      g[best] = d; R[r] |= b; C[c] |= b; B[x] |= b;
+      rec();
+      if (count >= limit) return;
+      g[best] = 0; R[r] &= ~b; C[c] &= ~b; B[x] &= ~b;
+    }
+  })();
+  return count;
+}
+
+// Human-style grader: returns { level, left } where left = empty cells when the basic techniques run out.
+function rate(puz) {
+  const g = puz.slice(), cand = new Array(81).fill(0);
+  for (let i = 0; i < 81; i++) if (!g[i]) { let m = 0x3FE; for (const j of PEERS[i]) if (g[j]) m &= ~(1 << g[j]); cand[i] = m; }
+  const put = (i, d) => { g[i] = d; cand[i] = 0; for (const j of PEERS[i]) cand[j] &= ~(1 << d); };
+  let level = 1;
+  for (;;) {
+    let moved = false;
+    for (let i = 0; i < 81; i++) if (!g[i] && bits(cand[i]) === 1) { put(i, low(cand[i])); moved = true; }
+    if (moved) continue;
+    for (const u of UNITS) for (let d = 1; d <= 9; d++) {
+      let at = -1, n = 0; for (const i of u) if (cand[i] & (1 << d)) { at = i; n++; }
+      if (n === 1) { put(at, d); moved = true; }
+    }
+    if (moved) continue;
+    let elim = false;
+    for (const u of UNITS) for (let d = 1; d <= 9; d++) {
+      const cs = u.filter(i => cand[i] & (1 << d)); if (cs.length < 2) continue;
+      for (const v of UNITS) if (v !== u && cs.every(i => v.includes(i)))
+        for (const j of v) if (!cs.includes(j) && cand[j] & (1 << d)) { cand[j] &= ~(1 << d); elim = true; }
+    }
+    for (const u of UNITS) for (let a = 0; a < 9; a++) {
+      const m = cand[u[a]]; if (bits(m) !== 2) continue;
+      for (let b = a + 1; b < 9; b++) if (cand[u[b]] === m)
+        for (const j of u) if (j !== u[a] && j !== u[b] && cand[j] & m) { cand[j] &= ~m; elim = true; }
+    }
+    if (elim) { level = 2; continue; }
+    break;
+  }
+  const left = g.filter(v => !v).length;
+  return { level: left ? 3 : level, left };
+}
+
+function carve(sol, target, sym, rnd) {
+  const puz = sol.slice(); let clues = 81;
+  for (const i of shuffle([...Array(sym ? 41 : 81).keys()], rnd)) {
+    if (clues <= target) break;
+    const j = sym ? 80 - i : i, a = puz[i], b = puz[j];
+    puz[i] = 0; puz[j] = 0;
+    if (solve(puz.slice(), 2, null) !== 1) { puz[i] = a; puz[j] = b; }
+    else clues -= (i === j ? 1 : 2);
+  }
+  return { puz, clues };
+}
+
+async function makePuzzle(key, seed) {
+  const L = LV[key], rnd = mulberry32(seed); let best = null;
+  const score = (r, c) => (r.level === 3 ? 300 : r.level === 2 ? 200 : 100) * (L.n >= 3 ? 1 : -1) + r.left - c;
+  for (let k = 0; k < L.tries; k++) {
+    const sol = new Array(81).fill(0); solve(sol, 1, rnd);
+    const { puz, clues } = carve(sol, L.target, L.sym, rnd), r = rate(puz);
+    const cand = { puzzle: puz, solution: sol, r, clues };
+    if (L.ok(r, clues)) return cand;
+    if (!best || score(r, clues) > score(best.r, best.clues)) best = cand;
+    if (k % 6 === 5) await new Promise(res => setTimeout(res, 0));
+  }
+  return best;
+}
+
+let S = null, sel = 40, notesMode = false, history = [], ticking = null, pendingDiff = null, busy = false, returnFocus = null;
+let player = lsGet(PKEY) || "";
+
+async function newGame(key, seed) {
+  if (busy || !player) return;
+  const fromCode = seed != null;
+  if (!fromCode) seed = newSeed();
+  const code = encodeCode(key, seed);
+  busy = true; stopClock();
+  $("win").hidden = true;
+  $("busyText").textContent = fromCode ? `Loading puzzle ${code}…` : `Drawing ${/^[aeiou]/i.test(LV[key].label) ? "an" : "a"} ${LV[key].label.toLowerCase()} grid…`;
+  $("busy").hidden = false;
+  await new Promise(res => setTimeout(res, 30));
+  const forPlayer = player;
+  const { puzzle, solution } = await makePuzzle(key, seed);
+  busy = false; $("busy").hidden = true;
+  if (forPlayer !== player) return;
+  S = { diff: key, code, puzzle, solution, values: puzzle.slice(), notes: new Array(81).fill(0), elapsed: 0, hints: 0, mistakes: 0, done: false, result: null };
+  history = []; sel = 40;
+  save(); render(); startClock();
+}
+
+function save() { if (S && player) lsSet(gameKey(player), JSON.stringify(S)); }
+function parseGame(raw) {
+  try {
+    const s = JSON.parse(raw);
+    if (s && Array.isArray(s.values) && s.values.length === 81 && LV[s.diff]) { s.mistakes ||= 0; return s; }
+  } catch (e) {}
+  return null;
+}
+
+// DOM
+$("diff").innerHTML = LEVELS.map((l, i) => `<button type="button" data-d="${l.key}" aria-pressed="false">${dots(i + 1)}<span>${l.label}</span></button>`).join("");
+const board = $("board"), cells = [];
+for (let b = 0; b < 9; b++) {
+  const bx = document.createElement("div"); bx.className = "box"; bx.setAttribute("role", "presentation");
+  for (let k = 0; k < 9; k++) {
+    const r = ((b / 3) | 0) * 3 + ((k / 3) | 0), c = (b % 3) * 3 + (k % 3), i = r * 9 + c;
+    const el = document.createElement("div");
+    el.className = "cell"; el.setAttribute("role", "gridcell");
+    el.innerHTML = '<span class="v"></span><div class="notes">' + "<i></i>".repeat(9) + "</div>";
+    el.addEventListener("pointerdown", e => { e.preventDefault(); if (!S) return; sel = i; board.focus({ preventScroll: true }); render(); });
+    cells[i] = el; bx.appendChild(el);
+  }
+  board.appendChild(bx);
+}
+const pad = $("pad"), padBtns = [];
+for (let d = 1; d <= 9; d++) {
+  const b = document.createElement("button");
+  b.type = "button"; b.innerHTML = d + "<small></small>"; b.setAttribute("aria-label", "Enter " + d);
+  b.addEventListener("click", () => input(d));
+  pad.appendChild(b); padBtns[d] = b;
+}
+
+function conflicts() {
+  const bad = new Array(81).fill(false);
+  for (let i = 0; i < 81; i++) if (S.values[i]) for (const j of PEERS[i]) if (S.values[j] === S.values[i]) { bad[i] = true; break; }
+  return bad;
+}
+
+function render() {
+  if (!S) return;
+  const bad = conflicts(), sv = S.values[sel];
+  const counts = new Array(10).fill(0);
+  for (let i = 0; i < 81; i++) {
+    const el = cells[i], v = S.values[i], given = !!S.puzzle[i];
+    counts[v]++;
+    el.classList.toggle("given", given);
+    el.classList.toggle("sel", i === sel);
+    el.classList.toggle("peer", i !== sel && PEERS[sel].includes(i));
+    el.classList.toggle("same", i !== sel && sv > 0 && v === sv);
+    el.classList.toggle("bad", bad[i] && !given);
+    el.firstChild.textContent = v || "";
+    const ns = el.lastChild.children, m = v ? 0 : S.notes[i];
+    for (let d = 1; d <= 9; d++) {
+      ns[d - 1].textContent = m & (1 << d) ? d : "";
+      ns[d - 1].classList.toggle("hit", sv > 0 && d === sv);
+    }
+    el.setAttribute("aria-label", `Row ${row(i) + 1}, column ${col(i) + 1}: ${v || "empty"}${given ? ", given" : ""}`);
+  }
+  for (let d = 1; d <= 9; d++) {
+    const left = 9 - counts[d];
+    padBtns[d].lastChild.textContent = left > 0 ? left : "";
+    padBtns[d].classList.toggle("done", left <= 0);
+  }
+  pad.classList.toggle("notesmode", notesMode);
+  $("notes").setAttribute("aria-pressed", notesMode);
+  $("notesState").textContent = notesMode ? "on" : "off";
+  $("clearNotes").disabled = S.done || !S.notes.some((n, i) => n && !S.values[i]);
+  document.querySelectorAll("#diff button").forEach(b => b.setAttribute("aria-pressed", b.dataset.d === S.diff));
+  $("level").textContent = LV[S.diff].label;
+  $("clues").textContent = S.puzzle.filter(Boolean).length;
+  $("hints").textContent = S.hints;
+  $("codeText").textContent = S.code || "No code (older puzzle)";
+  $("copyCode").disabled = !S.code;
+  $("wrong").textContent = S.mistakes;
+  $("wrongBox").classList.toggle("zero", !S.mistakes);
+  $("time").textContent = fmt(S.elapsed);
+}
+
+function fmt(s) { const h = (s / 3600) | 0, m = ((s % 3600) / 60) | 0, x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
+
+function place(i, d, changes) {
+  changes.push({ i, v: S.values[i], n: S.notes[i] });
+  S.values[i] = d; S.notes[i] = 0;
+  if (d) for (const j of PEERS[i]) if (S.notes[j] & (1 << d)) { changes.push({ i: j, v: S.values[j], n: S.notes[j] }); S.notes[j] &= ~(1 << d); }
+}
+
+const modalOpen = () => !$("modal").hidden || !$("pmodal").hidden || !$("amodal").hidden;
+const blocked = () => busy || !S || !player || S.done || modalOpen();
+
+function input(d) {
+  if (blocked() || S.puzzle[sel]) return;
+  const ch = [];
+  if (notesMode) {
+    if (S.values[sel]) return;
+    ch.push({ i: sel, v: 0, n: S.notes[sel] });
+    S.notes[sel] ^= 1 << d;
+  } else {
+    const nv = S.values[sel] === d ? 0 : d;
+    if (nv && nv !== S.solution[sel]) S.mistakes++;
+    place(sel, nv, ch);
+    cells[sel].classList.remove("pop"); void cells[sel].offsetWidth; cells[sel].classList.add("pop");
+  }
+  history.push(ch); after();
+}
+
+function erase() {
+  if (blocked() || S.puzzle[sel] || (!S.values[sel] && !S.notes[sel])) return;
+  history.push([{ i: sel, v: S.values[sel], n: S.notes[sel] }]);
+  S.values[sel] = 0; S.notes[sel] = 0; after();
+}
+
+function clearNotes() {
+  if (blocked()) return;
+  const ch = [];
+  for (let i = 0; i < 81; i++) if (S.notes[i]) { ch.push({ i, v: S.values[i], n: S.notes[i] }); S.notes[i] = 0; }
+  if (!ch.length) return;
+  ch.keepSel = true;
+  history.push(ch); after();
+}
+
+function undo() {
+  if (blocked()) return;
+  const ch = history.pop(); if (!ch) return;
+  for (let k = ch.length - 1; k >= 0; k--) { S.values[ch[k].i] = ch[k].v; S.notes[ch[k].i] = ch[k].n; }
+  if (!ch.keepSel) sel = ch[0].i;
+  after();
+}
+
+function hint() {
+  if (blocked()) return;
+  const wrong = i => !S.puzzle[i] && S.values[i] !== S.solution[i];
+  let t = wrong(sel) ? sel : -1;
+  if (t < 0) { const open = [...Array(81).keys()].filter(wrong); if (!open.length) return; t = open[Math.random() * open.length | 0]; }
+  const ch = []; place(t, S.solution[t], ch); history.push(ch);
+  sel = t; S.hints++;
+  cells[t].classList.remove("flash"); void cells[t].offsetWidth; cells[t].classList.add("flash");
+  after();
+}
+
+function after() {
+  if (!S.done && S.values.every((v, i) => v === S.solution[i])) {
+    S.done = true; stopClock();
+    const prev = games.filter(g => g.diff === S.diff && g.player === player).map(g => g.seconds);
+    const earlier = S.code ? games.filter(g => g.code === S.code) : [];
+    const same = {};
+    for (const g of earlier) { const p = g.player || "No name"; if (!(p in same) || g.seconds < same[p]) same[p] = g.seconds; }
+    const rec = {
+      id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      player, diff: S.diff, seconds: S.elapsed, hints: S.hints, mistakes: S.mistakes,
+      clues: S.puzzle.filter(Boolean).length, finishedAt: new Date().toISOString(),
+      code: S.code || null, replay: earlier.some(g => g.player === player),
+    };
+    S.result = { best: !prev.length || S.elapsed < Math.min(...prev), first: !prev.length, id: rec.id, same };
+    addGame(rec);
+  }
+  if (S.done) showWin();
+  save(); render();
+}
+
+function showWin() {
+  const r = S.result || {};
+  $("winBest").hidden = !r.best;
+  $("winBest").textContent = r.first ? `First ${LV[S.diff].label.toLowerCase()} solve` : `New best for ${LV[S.diff].label.toLowerCase()}`;
+  const m = S.mistakes ? `, ${S.mistakes} wrong entr${S.mistakes === 1 ? "y" : "ies"}` : ", no wrong entries";
+  $("winText").innerHTML = `${LV[S.diff].label} in <b>${fmt(S.elapsed)}</b> with <b>${S.hints}</b> hint${S.hints === 1 ? "" : "s"}${m}.`;
+  const same = Object.entries(r.same || {});
+  $("winSame").hidden = !same.length;
+  $("winSame").innerHTML = same.length
+    ? `Same puzzle (${esc(S.code)}): ` + same.map(([p, s]) => `${p === player ? "your earlier best" : esc(p)} <b>${fmt(s)}</b>`).join(", ") + "."
+    : "";
+  $("win").hidden = false;
+}
+
+function startClock() {
+  stopClock();
+  if (!S || S.done) return;
+  ticking = setInterval(() => {
+    if (document.hidden || !S || S.done || busy || modalOpen()) return;
+    S.elapsed++; $("time").textContent = fmt(S.elapsed);
+    if (S.elapsed % 5 === 0) save();
+  }, 1000);
+}
+function stopClock() { clearInterval(ticking); ticking = null; }
+
+// New-game confirmation
+function started() {
+  return !S.done && (S.values.some((v, i) => v && !S.puzzle[i]) || S.notes.some(Boolean) || S.hints > 0 || history.length > 0);
+}
+function askNew(key, from, seed) {
+  if (busy || !S || !player) return;
+  if (!started()) { newGame(key, seed); return; }
+  pendingDiff = { key, seed }; returnFocus = from;
+  const filled = S.values.filter((v, i) => v && !S.puzzle[i]).length, empty = S.values.filter(v => !v).length;
+  $("mTitle").textContent = seed != null ? `Play puzzle ${encodeCode(key, seed)}?`
+    : key === S.diff ? `Start a new ${LV[key].label.toLowerCase()} puzzle?` : `Switch to ${LV[key].label.toLowerCase()}?`;
+  $("mText").textContent = `You've filled ${filled} cell${filled === 1 ? "" : "s"} in this ${LV[S.diff].label.toLowerCase()} game (${fmt(S.elapsed)}, ${empty} to go). A new game will start and all progress on this one will be lost. Unfinished games are not added to the record.`;
+  $("modal").hidden = false;
+  $("no").focus();
+}
+function closeModal() { $("modal").hidden = true; (returnFocus || board).focus({ preventScroll: true }); }
+$("no").onclick = closeModal;
+$("yes").onclick = () => { $("modal").hidden = true; board.focus({ preventScroll: true }); newGame(pendingDiff.key, pendingDiff.seed); };
+
+// Codes: copy the current one, or play one someone shared
+function playCode(text, from) {
+  const c = decodeCode(text), msg = $("codeMsg");
+  if (!c) {
+    msg.textContent = "That code doesn't look right. Codes are a level letter and six characters, like H-4F7KQ2.";
+    msg.className = "codemsg err"; msg.hidden = false; return false;
+  }
+  msg.hidden = true;
+  if (S && S.code === c.code && !S.done) { msg.textContent = `You're already playing ${c.code}.`; msg.className = "codemsg"; msg.hidden = false; return false; }
+  askNew(c.key, from, c.seed);
+  return true;
+}
+$("codeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (playCode($("codeIn").value, $("codeIn"))) $("codeIn").value = "";
+});
+$("copyCode").onclick = () => {
+  if (!S || !S.code) return;
+  const btn = $("copyCode"), done = t => { btn.textContent = t; setTimeout(() => { btn.textContent = "Copy code"; }, 1600); };
+  const selectIt = () => { const r = document.createRange(); r.selectNodeContents($("codeText")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); done("Selected"); };
+  try { navigator.clipboard.writeText(S.code).then(() => done("Copied"), selectIt); } catch (e) { selectIt(); }
+};
+$("modal").addEventListener("pointerdown", e => { if (e.target === $("modal")) closeModal(); });
+
+// ---------- Players ----------
+let knownPlayers = (() => { try { const a = JSON.parse(lsGet(PLKEY)); return Array.isArray(a) ? a.filter(x => typeof x === "string") : []; } catch (e) { return []; } })();
+const cleanName = s => s.replace(/\s+/g, " ").trim().slice(0, 20);
+function allPlayers() {
+  const set = new Map();
+  for (const p of [...knownPlayers, ...games.map(g => g.player)]) if (p) set.set(p.toLowerCase(), set.get(p.toLowerCase()) || p);
+  return [...set.values()].sort((a, b) => a.localeCompare(b));
+}
+function rememberPlayer(p) {
+  if (!knownPlayers.some(k => k.toLowerCase() === p.toLowerCase())) { knownPlayers.push(p); lsSet(PLKEY, JSON.stringify(knownPlayers)); }
+}
+
+function openPlayer(required) {
+  const others = allPlayers().filter(p => p !== player);
+  const untagged = games.filter(g => !g.player).length;
+  $("pTitle").textContent = player ? "Switch player" : "Who's playing?";
+  $("pText").textContent = player
+    ? "Each player has their own record and their own game in progress. Your current game is saved and will be waiting when you switch back."
+    : "Your name goes on the puzzles you solve, so each player keeps their own record and their own game in progress.";
+  $("plist").hidden = !others.length;
+  $("plist").innerHTML = others.map(p => `<button type="button" data-p="${esc(p)}">${esc(p)}</button>`).join("");
+  $("pLabel").textContent = others.length ? "Or a new player" : "Your name";
+  $("pname").value = "";
+  $("perr").hidden = true;
+  $("pclaimRow").hidden = !untagged;
+  $("pclaimText").textContent = `Count the ${untagged} puzzle${untagged === 1 ? "" : "s"} already solved here as mine`;
+  $("pclaim").checked = !player;
+  $("pcancel").hidden = required;
+  $("pmodal").dataset.required = required ? "1" : "";
+  $("pmodal").hidden = false;
+  setTimeout(() => (others.length ? $("plist").firstChild : $("pname")).focus(), 30);
+}
+function closePlayer() { if ($("pmodal").dataset.required) return; $("pmodal").hidden = true; board.focus({ preventScroll: true }); }
+
+function switchTo(name) {
+  if (busy) return;
+  const claim = !$("pclaimRow").hidden && $("pclaim").checked;
+  save();
+  const legacy = !player ? lsGet(KEY) : null;
+  player = name; lsSet(PKEY, name); rememberPlayer(name);
+  if (legacy && !lsGet(gameKey(name))) { lsSet(gameKey(name), legacy); lsDel(KEY); }
+  if (claim) {
+    const mine = games.filter(g => !g.player);
+    for (const g of mine) g.player = name;
+    saveLocalGames();
+    writeGames(mine);
+  }
+  $("pmodal").hidden = true;
+  recView = name;
+  stopClock(); history = []; sel = 40; notesMode = false; $("win").hidden = true;
+  const s = parseGame(lsGet(gameKey(name)));
+  renderWho(); renderRecord();
+  if (s) { S = s; render(); if (S.done) showWin(); else startClock(); }
+  else { S = null; newGame("medium"); }
+  board.focus({ preventScroll: true });
+}
+
+$("plist").addEventListener("click", e => { const b = e.target.closest("button"); if (b) switchTo(b.dataset.p); });
+$("pform").addEventListener("submit", e => {
+  e.preventDefault();
+  const n = cleanName($("pname").value);
+  if (!n) { $("perr").textContent = "Type a name to start, or pick a player above."; $("perr").hidden = false; $("pname").focus(); return; }
+  const existing = allPlayers().find(p => p.toLowerCase() === n.toLowerCase());
+  switchTo(existing || n);
+});
+$("pcancel").onclick = closePlayer;
+$("pmodal").addEventListener("pointerdown", e => { if (e.target === $("pmodal")) closePlayer(); });
+$("who").onclick = () => { if (!busy) openPlayer(false); };
+function renderWho() { $("who").hidden = !player; $("whoName").textContent = player; }
+
+// Controls
+$("undo").onclick = undo;
+$("erase").onclick = erase;
+$("clearNotes").onclick = clearNotes;
+$("hint").onclick = hint;
+$("notes").onclick = () => { notesMode = !notesMode; render(); };
+$("again").onclick = () => newGame(S.diff);
+$("diff").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  askNew(b.dataset.d, b);
+});
+
+document.addEventListener("keydown", e => {
+  const k = e.key;
+  if (!$("amodal").hidden) { if (k === "Escape") { e.preventDefault(); closeAcct(); } return; }
+  if (!$("pmodal").hidden) { if (k === "Escape") { e.preventDefault(); closePlayer(); } return; }
+  if (!$("modal").hidden) {
+    if (k === "Escape") { e.preventDefault(); closeModal(); }
+    else if (k === "Tab") { const f = [$("no"), $("yes")], at = f.indexOf(document.activeElement); e.preventDefault(); f[(at + 1) % 2].focus(); }
+    return;
+  }
+  if (e.target.closest && e.target.closest("button") && (k === "Enter" || k === " ")) return;
+  if (e.target.matches && e.target.matches("input, textarea")) return;
+  if (busy || !S) return;
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^[1-9]$/.test(k)) { input(+k); e.preventDefault(); return; }
+  const mv = { ArrowUp: -9, ArrowDown: 9, ArrowLeft: -1, ArrowRight: 1 }[k];
+  if (mv) {
+    e.preventDefault();
+    const r = row(sel), c = col(sel);
+    if (mv === -9) sel = ((r + 8) % 9) * 9 + c; else if (mv === 9) sel = ((r + 1) % 9) * 9 + c;
+    else if (mv === -1) sel = r * 9 + (c + 8) % 9; else sel = r * 9 + (c + 1) % 9;
+    render(); return;
+  }
+  if (k === "Backspace" || k === "Delete" || k === "0") { e.preventDefault(); erase(); return; }
+  if (k === "n" || k === "N") { notesMode = !notesMode; render(); return; }
+  if (k === "h" || k === "H") { hint(); }
+});
+
+// ---------- History & stats ----------
+// Solved games are saved to the signed-in person's rows in Supabase (Row Level Security keeps each account's
+// games private), so they follow her between devices. A copy is always kept in this browser, so the record shows
+// instantly, works signed out or offline, and anything solved offline is uploaded on the next sync.
+// A game's `uid` marks which account it has been synced with; games without one were never uploaded.
+const validGame = g => g && typeof g.id === "string" && LV[g.diff] && Number.isFinite(g.seconds) && typeof g.finishedAt === "string";
+let games = loadLocalGames(), syncMode = "local", showAll = false, recView = player || "*"; // after validGame, which it uses
+
+function loadLocalGames() {
+  try { const a = JSON.parse(lsGet(HKEY)); return Array.isArray(a) ? a.filter(validGame) : []; } catch (e) { return []; }
+}
+function saveLocalGames() { lsSet(HKEY, JSON.stringify(games)); }
+function mergeGames(list) {
+  const m = new Map(games.map(g => [g.id, g]));
+  for (const g of list) if (validGame(g)) {
+    const mine = m.get(g.id);
+    m.set(g.id, mine && mine.player && !g.player ? { ...g, player: mine.player } : { ...g });
+  }
+  games = [...m.values()].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  saveLocalGames();
+}
+
+function addGame(rec) { mergeGames([rec]); renderRecord(); writeGames([rec]); }
+
+function setSync(mode, text) { syncMode = mode; const el = $("sync"); el.dataset.mode = mode; el.textContent = text; }
+
+// ---------- Account sync (Supabase) ----------
+const CFG = window.SUDOKU_CONFIG || {};
+let sb = null, sbUser = null, pulling = false, pullAgain = false;
+const LOCAL_TEXT = "Saved in this browser only";
+const standalone = () => navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+
+const toRow = (g, uid) => ({
+  user_id: uid, id: g.id, player: g.player || null, diff: g.diff, seconds: g.seconds | 0,
+  hints: g.hints | 0, mistakes: g.mistakes | 0, clues: Number.isFinite(g.clues) ? g.clues : null,
+  code: g.code || null, replay: !!g.replay, finished_at: g.finishedAt,
+});
+const fromRow = r => ({
+  id: r.id, player: r.player || "", diff: r.diff, seconds: r.seconds, hints: r.hints, mistakes: r.mistakes,
+  clues: r.clues, code: r.code, replay: !!r.replay, finishedAt: new Date(r.finished_at).toISOString(), uid: r.user_id,
+});
+
+async function writeGames(list) {
+  if (!sb || !sbUser || !list.length) return;
+  const uid = sbUser.id;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { error } = await sb.from("games").upsert(list.map(g => toRow(g, uid)), { onConflict: "user_id,id" });
+      if (error) throw error;
+      if (!sbUser || sbUser.id !== uid) return;
+      for (const g of list) g.uid = uid;
+      saveLocalGames();
+      return;
+    } catch (e) {
+      if (attempt === 0) { await new Promise(r => setTimeout(r, 800 + Math.random() * 800)); continue; }
+      // Stays in this browser without a uid, so the next sync uploads it.
+      setSync("slow", "Couldn't upload your latest game yet; it's saved here and will sync next time");
+    }
+  }
+}
+
+async function pullGames() {
+  if (!sb || !sbUser) return;
+  if (pulling) { pullAgain = true; return; }
+  pulling = true;
+  const uid = sbUser.id, email = sbUser.email || "your account";
+  if (syncMode !== "account") setSync("connecting", "Syncing with your account…");
+  try {
+    const { data, error } = await sb.from("games").select("*").order("finished_at", { ascending: false }).limit(2000);
+    if (error) throw error;
+    if (!sbUser || sbUser.id !== uid) return;
+    const remote = data.map(fromRow).filter(validGame);
+    const have = new Map(remote.map(g => [g.id, g]));
+    // Upload games solved here while signed out or offline (never ones synced with a different account).
+    const missing = games.filter(g => (!g.uid || g.uid === uid) && (!have.has(g.id) || (g.player && !have.get(g.id).player)));
+    mergeGames(remote); renderRecord();
+    setSync("account", "Synced · " + email);
+    if (missing.length) await writeGames(missing);
+  } catch (e) {
+    setSync("slow", "Can't reach your account right now; showing games saved in this browser");
+  } finally {
+    pulling = false;
+    if (pullAgain) { pullAgain = false; pullGames(); }
+  }
+}
+
+function renderAcctButton() {
+  const b = $("acct");
+  b.hidden = !sb;
+  b.textContent = sbUser ? "Account" : "Sign in to sync";
+}
+
+function startCloud() {
+  const url = CFG.supabaseUrl, key = CFG.supabaseKey;
+  if (!url || !key || /YOUR_/.test(url + key) || !window.supabase || typeof window.supabase.createClient !== "function") {
+    setSync("local", LOCAL_TEXT); return;
+  }
+  try {
+    // Implicit flow: a magic link works even if it opens in a different browser than the one that asked for it.
+    sb = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } });
+  } catch (e) { sb = null; setSync("local", LOCAL_TEXT); return; }
+  renderAcctButton();
+  setSync("local", LOCAL_TEXT + " · sign in to sync");
+  sb.auth.onAuthStateChange((event, session) => {
+    const before = sbUser && sbUser.id;
+    sbUser = session ? session.user : null;
+    renderAcctButton();
+    if (event === "SIGNED_OUT") {
+      // Take this account's games off the device; anything never uploaded stays.
+      games = games.filter(g => !g.uid); saveLocalGames(); renderRecord();
+      setSync("local", LOCAL_TEXT + " · sign in to sync");
+    }
+    if (!$("amodal").hidden && sbUser) closeAcct();
+    // Don't call Supabase inside this callback (it can deadlock the auth lock); defer instead.
+    if (sbUser && (sbUser.id !== before || event === "SIGNED_IN")) setTimeout(pullGames, 0);
+  });
+  // An expired or already-used magic link comes back with the error in the URL.
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("error_description")) {
+    const msg = h.get("error_description").replace(/\+/g, " ");
+    window.history.replaceState(null, "", location.pathname + location.search); // `history` is the undo stack here
+    setTimeout(() => { openAcct(); showAcctErr(msg + ". Ask for a new code below."); }, 300);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pullGames(); });
+  window.addEventListener("online", pullGames);
+}
+
+function initCloud() {
+  if (window.supabase) { startCloud(); return; }
+  const tag = $("sbjs");
+  if (!tag || !CFG.supabaseUrl) { setSync("local", LOCAL_TEXT); return; }
+  tag.addEventListener("load", startCloud);
+  tag.addEventListener("error", () => setSync("local", LOCAL_TEXT + " (couldn't load account sync)"));
+}
+
+// Sign-in dialog: email → code (or tap the link) → signed in
+let aStep = "email", aEmail = "";
+function showAcctErr(t) { $("aerr").textContent = t; $("aerr").hidden = false; }
+function renderAcctModal() {
+  const s = aStep;
+  $("aTitle").textContent = s === "signed" ? "Your account" : s === "code" ? "Check your email" : "Sync your record";
+  $("aText").textContent = s === "signed"
+    ? `Signed in as ${sbUser.email}. Puzzles solved here are saved to this account and appear on every device where you sign in with this email.`
+    : s === "code"
+    ? `We emailed a sign-in code to ${aEmail}. Type it here.`
+    : "Sign in with your email and your solved puzzles follow you between your phone and tablet. There's no password: we email you a code.";
+  $("aNote").hidden = s !== "code";
+  $("aNote").textContent = standalone()
+    ? "Use the code, not the link: on iPhone and iPad the link opens Safari, not this Home Screen app."
+    : "You can also tap the link in the email to sign in on this browser. It can take a minute to arrive, so check spam too.";
+  $("aEmailRow").hidden = s !== "email";
+  $("aCodeRow").hidden = s !== "code";
+  $("aback").hidden = s !== "code";
+  $("ago").textContent = s === "signed" ? "Sign out" : s === "code" ? "Sign in" : "Email me a code";
+  $("aerr").hidden = true;
+}
+function openAcct() {
+  if (!sb) return;
+  if (sbUser) aStep = "signed"; else if (aStep === "signed") aStep = "email";
+  renderAcctModal();
+  $("amodal").hidden = false;
+  setTimeout(() => (aStep === "email" ? $("aemail") : aStep === "code" ? $("acode") : $("acancel")).focus(), 30);
+}
+function closeAcct() { $("amodal").hidden = true; board.focus({ preventScroll: true }); }
+$("acct").onclick = openAcct;
+$("acancel").onclick = closeAcct;
+$("aback").onclick = () => { aStep = "email"; renderAcctModal(); $("aemail").focus(); };
+$("amodal").addEventListener("pointerdown", e => { if (e.target === $("amodal")) closeAcct(); });
+$("aform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const go = $("ago");
+  if (!sb || go.disabled) return;
+  $("aerr").hidden = true;
+  go.disabled = true;
+  try {
+    if (aStep === "email") {
+      const em = $("aemail").value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { showAcctErr("Type the email address you want to sign in with."); $("aemail").focus(); return; }
+      const { error } = await sb.auth.signInWithOtp({ email: em, options: { emailRedirectTo: location.origin + location.pathname } });
+      if (error) { showAcctErr(/rate|seconds/i.test(error.message) ? "Too many emails just now. Wait a minute, then try again." : error.message); return; }
+      aEmail = em; aStep = "code"; $("acode").value = ""; renderAcctModal(); $("acode").focus();
+    } else if (aStep === "code") {
+      const t = $("acode").value.replace(/\D/g, "");
+      if (t.length < 6) { showAcctErr("Type the code from the email."); $("acode").focus(); return; }
+      const { error } = await sb.auth.verifyOtp({ email: aEmail, token: t, type: "email" });
+      if (error) { showAcctErr("That code didn't work. It may have expired, so check for a newer email or ask for a new code."); $("acode").focus(); return; }
+      aStep = "email"; closeAcct();
+    } else {
+      await sb.auth.signOut();
+      aStep = "email"; closeAcct();
+    }
+  } catch (err) {
+    showAcctErr("Couldn't reach the sign-in service. Check your connection and try again.");
+  } finally {
+    go.disabled = false;
+  }
+});
+
+const dayKey = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+function streak(list) {
+  const days = new Set(list.map(g => dayKey(new Date(g.finishedAt))));
+  const d = new Date();
+  if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1);
+  let n = 0; while (days.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+const when = iso => {
+  const d = new Date(iso), now = new Date();
+  const opt = d.getFullYear() === now.getFullYear() ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" };
+  return d.toLocaleDateString(undefined, opt) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+};
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+function renderRecord() {
+  const players = allPlayers();
+  if (recView !== "*" && !players.includes(recView) && recView !== player) recView = player || "*";
+  const showFilter = players.length > 1 || (players.length === 1 && games.some(g => !g.player));
+  const pf = $("pfilter");
+  pf.hidden = !showFilter;
+  if (showFilter) {
+    pf.innerHTML = players.map(p => `<button type="button" data-v="${esc(p)}" aria-pressed="${recView === p}">${esc(p)}</button>`).join("")
+      + `<button type="button" data-v="*" aria-pressed="${recView === "*"}">Everyone</button>`;
+  }
+  $("recTitle").textContent = recView === "*" ? (showFilter ? "Everyone's record" : "Your record") : `${recView}'s record`;
+
+  const list = recView === "*" ? games : games.filter(g => g.player === recView);
+  const body = $("recBody");
+  if (!list.length) {
+    body.innerHTML = `<p class="empty">${recView === "*" ? "No solved puzzles yet." : `No solved puzzles for ${esc(recView)} yet.`} Finish one and it shows up here with the time, hints and wrong entries, along with the best and average time for each level.</p>`;
+    return;
+  }
+  const total = list.reduce((a, g) => a + g.seconds, 0), clean = list.filter(g => !g.hints && !g.mistakes).length, st = streak(list);
+  const bestIds = new Set();
+  const rows = LEVELS.map((l, i) => {
+    const gs = list.filter(g => g.diff === l.key);
+    if (!gs.length) return `<tr><td class="lvl dim">${dots(i + 1)}${l.label}</td><td class="num dim">0</td><td class="num dim">–</td><td class="num dim">–</td><td class="num dim">–</td></tr>`;
+    const best = gs.reduce((a, g) => g.seconds < a.seconds ? g : a); bestIds.add(best.id);
+    const avg = Math.round(gs.reduce((a, g) => a + g.seconds, 0) / gs.length);
+    const noHint = gs.filter(g => !g.hints).length;
+    return `<tr><td class="lvl">${dots(i + 1)}${l.label}</td><td class="num">${gs.length}</td><td class="num">${fmt(best.seconds)}</td><td class="num">${fmt(avg)}</td><td class="num">${noHint}</td></tr>`;
+  }).join("");
+  const shown = showAll ? list : list.slice(0, 10);
+  const items = shown.map(g => {
+    const who = recView === "*" ? `${esc(g.player || "No name")} · ` : "";
+    const c = g.code && decodeCode(g.code);
+    const codeBits = c ? ` · <span class="gcode">${esc(c.code)}</span> · <button class="replay" type="button" data-code="${esc(c.code)}">Play again</button>` : "";
+    return `<li>
+      <div class="gl">${dots(LV[g.diff].n)}<span>${LV[g.diff].label}</span>${g.replay ? '<span class="tag rp">Replay</span>' : ""}</div>
+      <div class="gt">${bestIds.has(g.id) ? '<span class="tag">Best</span> ' : ""}${fmt(g.seconds)}</div>
+      <div class="gm">${who}${esc(when(g.finishedAt))} · ${plural(g.hints | 0, "hint")} · ${g.mistakes | 0} wrong${codeBits}</div>
+    </li>`;
+  }).join("");
+  body.innerHTML = `
+    <div class="stack">
+      <div class="totals">
+        <div><b>${list.length}</b><span>Puzzles solved</span></div>
+        <div><b>${fmt(total)}</b><span>Time solving</span></div>
+        <div><b>${clean}</b><span>Clean solves: no hints, nothing wrong</span></div>
+        <div><b>${st}</b><span>Day streak</span></div>
+      </div>
+      ${progressHTML(list)}
+      <div>
+        <h3 class="sub">By level</h3>
+        <div class="scroll"><table class="bylevel">
+          <thead><tr><th>Level</th><th class="num">Solved</th><th class="num">Best</th><th class="num">Avg</th><th class="num">No hints</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3 class="sub">Completed games</h3>
+        <ul class="glist">${items}</ul>
+        ${list.length > 10 ? `<button class="link" id="more" type="button">${showAll ? "Show the latest 10" : `Show all ${list.length} games`}</button>` : ""}
+      </div>
+    </div>`;
+  const more = $("more"); if (more) more.onclick = () => { showAll = !showAll; renderRecord(); };
+  drawChart();
+}
+$("pfilter").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; recView = b.dataset.v; showAll = false; progLevel = null; renderRecord(); });
+$("recBody").addEventListener("click", e => {
+  const rp = e.target.closest(".replay");
+  if (rp) { if (playCode(rp.dataset.code, rp)) $("board").scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  const pc = e.target.closest(".pchips button");
+  if (pc) { progLevel = pc.dataset.l; renderRecord(); }
+});
+
+// ---------- Progress over time ----------
+let progLevel = null, chartGames = [];
+function progressHTML(list) {
+  const have = LEVELS.filter(l => list.some(g => g.diff === l.key));
+  if (!have.length) return "";
+  if (!progLevel || !have.some(l => l.key === progLevel)) {
+    progLevel = have.reduce((a, l) => list.filter(g => g.diff === l.key).length > list.filter(g => g.diff === a.key).length ? l : a).key;
+  }
+  const gs = list.filter(g => g.diff === progLevel).slice().reverse();
+  chartGames = gs;
+  const lab = LV[progLevel].label.toLowerCase();
+  let sum;
+  if (gs.length < 2) sum = `One ${lab} puzzle solved so far, in <b>${fmt(gs[0].seconds)}</b>. Solve another to start the trend.`;
+  else if (gs.length < 4) sum = `${gs.length} ${lab} puzzles so far. After 4 or more, this compares your latest games with your first ones.`;
+  else {
+    const k = Math.min(5, Math.floor(gs.length / 2));
+    const avg = a => Math.round(a.reduce((s, g) => s + g.seconds, 0) / a.length);
+    const first = avg(gs.slice(0, k)), last = avg(gs.slice(-k)), d = first - last;
+    sum = `Your last ${k} ${lab} games averaged <b>${fmt(last)}</b>, ` +
+      (Math.abs(d) < 5 ? `about the same as your first ${k}.` : `<b>${fmt(Math.abs(d))}</b> ${d > 0 ? "faster" : "slower"} than your first ${k} (${fmt(first)}).`);
+  }
+  const chips = have.map(l => `<button type="button" data-l="${l.key}" aria-pressed="${l.key === progLevel}">${l.label}</button>`).join("");
+  return `<div>
+    <h3 class="sub">Progress</h3>
+    <div class="pchips" role="group" aria-label="Level to chart">${chips}</div>
+    <p class="psum">${sum}</p>
+    ${gs.length >= 2 ? `<div class="chartwrap"><div class="chart" id="chart" role="img" aria-label="Solve time for each ${lab} game, oldest to newest"></div><div class="tip" id="tip" hidden></div></div>
+    <p class="pkey"><span><i></i>No hints</span><span><i class="h"></i>Used hints</span><span><i class="l"></i>Average of the last 5 games</span></p>` : ""}
+  </div>`;
+}
+
+function drawChart() {
+  const host = $("chart"), gs = chartGames;
+  if (!host || gs.length < 2) return;
+  const W = Math.max(260, Math.round(host.clientWidth || 600)), H = 220, m = { l: 40, r: 16, t: 22, b: 30 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b, n = gs.length;
+  const maxMin = Math.max(...gs.map(g => g.seconds)) / 60;
+  const step = [1, 2, 5, 10, 15, 20, 30, 60, 120].find(s => maxMin / s <= 4) || 240;
+  const top = Math.max(step, Math.ceil(maxMin / step) * step);
+  const x = i => m.l + (i * pw) / (n - 1), y = s => m.t + ph * (1 - s / (top * 60));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+  for (let v = 0; v <= top; v += step) {
+    svg += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y(v * 60)}" y2="${y(v * 60)}"/>`;
+    svg += `<text class="ax" x="${m.l - 8}" y="${y(v * 60) + 4}" text-anchor="end">${v ? v + "m" : "0"}</text>`;
+  }
+  svg += `<text class="ax" x="${m.l}" y="${H - 8}" text-anchor="start">Game 1</text>`;
+  svg += `<text class="ax" x="${W - m.r}" y="${H - 8}" text-anchor="end">Game ${n}</text>`;
+  const avg = gs.map((g, i) => { const w = gs.slice(Math.max(0, i - 4), i + 1); return w.reduce((s, q) => s + q.seconds, 0) / w.length; });
+  svg += `<path class="avg" d="${avg.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ")}"/>`;
+  let bi = 0; gs.forEach((g, i) => { if (g.seconds < gs[bi].seconds) bi = i; });
+  gs.forEach((g, i) => { svg += `<circle class="dot${g.hints ? " h" : ""}" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(g.seconds).toFixed(1)}" r="4.5"/>`; });
+  const bx = x(bi), anchor = bx < m.l + 40 ? "start" : bx > W - m.r - 40 ? "end" : "middle";
+  svg += `<text class="lab" x="${bx.toFixed(1)}" y="${(y(gs[bi].seconds) - 10).toFixed(1)}" text-anchor="${anchor}">Best ${fmt(gs[bi].seconds)}</text>`;
+  gs.forEach((g, i) => { svg += `<circle class="hit" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(g.seconds).toFixed(1)}" r="${Math.max(8, Math.min(16, pw / n / 2))}"/>`; });
+  svg += "</svg>";
+  host.innerHTML = svg;
+  host.dataset.w = W;
+  const tip = $("tip"), el = host.firstChild;
+  const show = i => {
+    const g = gs[i], d = new Date(g.finishedAt);
+    tip.innerHTML = `Game ${i + 1} · ${esc(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }))}<br><b>${fmt(g.seconds)}</b> · ${plural(g.hints | 0, "hint")} · ${g.mistakes | 0} wrong${g.code ? ` · ${esc(g.code)}` : ""}`;
+    const scale = host.clientWidth / W;
+    tip.style.left = Math.min(Math.max(x(i) * scale, 90), host.clientWidth - 90) + "px";
+    tip.style.top = y(g.seconds) * scale + "px";
+    tip.hidden = false;
+    el.querySelectorAll(".dot").forEach(c => c.classList.toggle("on", +c.dataset.i === i));
+  };
+  const hide = () => { tip.hidden = true; el.querySelectorAll(".dot.on").forEach(c => c.classList.remove("on")); };
+  el.addEventListener("pointerover", e => { const h = e.target.closest(".hit"); if (h) show(+h.dataset.i); });
+  el.addEventListener("pointerdown", e => { const h = e.target.closest(".hit"); if (h) show(+h.dataset.i); else hide(); });
+  el.addEventListener("pointerleave", hide);
+}
+try {
+  let lastW = 0;
+  new ResizeObserver(() => {
+    const host = $("chart"); if (!host) return;
+    const w = Math.round(host.clientWidth);
+    if (w && Math.abs(w - lastW) > 2) { lastW = w; drawChart(); }
+  }).observe($("recBody"));
+} catch (e) {}
+
+// Boot
+renderWho();
+renderRecord();
+initCloud();
+if (player) {
+  rememberPlayer(player);
+  S = parseGame(lsGet(gameKey(player)));
+  if (S) { render(); if (S.done) showWin(); else startClock(); }
+  else newGame("medium");
+} else {
+  S = parseGame(lsGet(KEY));
+  render();
+  openPlayer(true);
+}
+})();
+</script>
+</body>
+</html>
