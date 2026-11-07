@@ -5,6 +5,6 @@
 // NEVER put the "service_role" / secret key here.
 // While these still say YOUR_..., the game runs in browser-only mode.
 window.SUDOKU_CONFIG = {
-  supabaseUrl: "https://YOUR_PROJECT_REF.supabase.co",
-  supabaseKey: "YOUR_ANON_OR_PUBLISHABLE_KEY",
+  supabaseUrl: "https://wspzfokjsfnheujuonss.supabase.co",
+  supabaseKey: "sb_publishable_MlPVnZoLypVWjPAwLyreQA_f7tUJLyD",
 };
