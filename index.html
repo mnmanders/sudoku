@@ -104,6 +104,9 @@ h1 span{font-family:var(--f-pencil); font-weight:700; color:var(--pencil); font-
 }
 .cell.peer{background:var(--peer)}
 .cell.same{background:var(--same)}
+.cell.hunit{background:color-mix(in srgb, var(--pencil) 16%, var(--cell))}
+.cell.hsrc{box-shadow:inset 0 0 0 2px color-mix(in srgb, var(--pencil) 60%, transparent)}
+.cell.htarget{box-shadow:inset 0 0 0 3px var(--pencil)}
 .cell.sel{background:var(--mark)}
 .cell.bad .v{color:var(--bad)}
 .cell.bad:not(.sel){background-color:var(--badbg)}
@@ -157,6 +160,19 @@ h1 span{font-family:var(--f-pencil); font-weight:700; color:var(--pencil); font-
 
 /* Side rail */
 .rail{display:grid; gap:16px; max-width:520px; width:100%; margin-inline:auto; min-width:0}
+.boardcol{display:grid; gap:12px; align-content:start; min-width:0}
+
+/* Teaching hint */
+.hintbox{
+  max-width:520px; width:100%; margin-inline:auto; display:grid; gap:8px;
+  background:var(--cell); border:1.5px solid var(--pencil); border-radius:10px; padding:12px 14px;
+}
+.hintbox .hh{display:flex; align-items:center; gap:6px; font:600 11px var(--f-body); letter-spacing:.09em; text-transform:uppercase; color:var(--pencil)}
+.hintbox .hh svg{width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round}
+.hintbox p{margin:0; line-height:1.5}
+.hintbox ol{margin:0; padding-left:20px; line-height:1.5; color:var(--muted); display:grid; gap:4px}
+.hintbox b{font-family:var(--f-given); font-weight:600}
+.hrow{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap}
 .label{font-size:11px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:6px}
 .seg{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); background:var(--chip); border-radius:8px; padding:3px; gap:3px}
 .seg button{
@@ -307,6 +323,7 @@ td .dim, td.dim{color:var(--muted)}
   </header>
 
   <div class="main">
+   <div class="boardcol">
     <div class="boardwrap">
       <div class="board" id="board" tabindex="0" role="grid" aria-label="Sudoku board. Use arrow keys to move and number keys to fill."></div>
       <div class="overlay" id="win" hidden>
@@ -320,6 +337,18 @@ td .dim, td.dim{color:var(--muted)}
       </div>
       <div class="overlay" id="busy" hidden><div class="busy" id="busyText">Drawing a fresh grid…</div></div>
     </div>
+    <div class="hintbox" id="hintbox" hidden aria-live="polite">
+      <div class="hh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z"/></svg>
+        <span id="hintKind">Hint</span>
+      </div>
+      <div id="hintText"></div>
+      <div class="hrow">
+        <button class="btn ghost" id="hintClose" type="button">Got it</button>
+        <button class="btn" id="hintFill" type="button">Fill it in</button>
+      </div>
+    </div>
+   </div>
 
     <div class="rail">
       <div>
@@ -580,7 +609,7 @@ async function newGame(key, seed) {
   busy = false; $("busy").hidden = true;
   if (forPlayer !== player) return;
   S = { diff: key, code, puzzle, solution, values: puzzle.slice(), notes: new Array(81).fill(0), elapsed: 0, hints: 0, mistakes: 0, done: false, result: null };
-  history = []; sel = 40;
+  history = []; sel = 40; teach = null;
   save(); render(); startClock();
 }
 
@@ -625,10 +654,13 @@ function render() {
     counts[v]++;
     el.classList.toggle("given", given);
     el.classList.toggle("sel", i === sel);
-    el.classList.toggle("peer", i !== sel && PEERS[sel].includes(i));
+    el.classList.toggle("peer", !teach && i !== sel && PEERS[sel].includes(i)); // a hint shows its own shading
     el.classList.toggle("same", i !== sel && sv > 0 && v === sv);
     // Red strike on any wrong entry (same check as the Wrong counter); that includes the wrong half of any clash.
     el.classList.toggle("bad", !given && v > 0 && v !== S.solution[i]);
+    el.classList.toggle("htarget", !!teach && teach.t === i);
+    el.classList.toggle("hunit", !!teach && teach.t !== i && teach.unit.has(i));
+    el.classList.toggle("hsrc", !!teach && teach.t !== i && teach.src.has(i));
     el.firstChild.textContent = v || "";
     const ns = el.lastChild.children, m = v ? 0 : S.notes[i];
     for (let d = 1; d <= 9; d++) {
@@ -655,6 +687,12 @@ function render() {
   $("wrong").textContent = S.mistakes;
   $("wrongBox").classList.toggle("zero", !S.mistakes);
   $("time").textContent = fmt(S.elapsed);
+  $("hintbox").hidden = !teach;
+  if (teach) {
+    $("hintKind").textContent = teach.kind;
+    $("hintText").innerHTML = teach.html;
+    $("hintFill").innerHTML = teach.fix ? `Fix it: put ${teach.d} here` : `Fill in ${teach.d}`;
+  }
 }
 
 function fmt(s) { const h = (s / 3600) | 0, m = ((s % 3600) / 60) | 0, x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
@@ -707,18 +745,169 @@ function undo() {
   after();
 }
 
-function hint() {
-  if (blocked()) return;
-  const wrong = i => !S.puzzle[i] && S.values[i] !== S.solution[i];
-  let t = wrong(sel) ? sel : -1;
-  if (t < 0) { const open = [...Array(81).keys()].filter(wrong); if (!open.length) return; t = open[Math.random() * open.length | 0]; }
-  const ch = []; place(t, S.solution[t], ch); history.push(ch);
-  sel = t; S.hints++;
-  cells[t].classList.remove("flash"); void cells[t].offsetWidth; cells[t].classList.add("flash");
-  after();
+// ---------- Teaching hints ----------
+// Finds the simplest next step from the current board and explains it, using the same techniques the grader
+// (rate) looks for: hidden singles, naked singles, pointing/claiming and naked pairs. This is a separate copy so
+// the generator and grader stay untouched (puzzle codes depend on them).
+const BOXNAME = ["top-left", "top-middle", "top-right", "middle-left", "centre", "middle-right", "bottom-left", "bottom-middle", "bottom-right"];
+const TU = [];
+for (let k = 0; k < 9; k++) TU.push({ kind: "box", k, cells: [...Array(81).keys()].filter(i => box(i) === k) });
+for (let k = 0; k < 9; k++) TU.push({ kind: "row", k, cells: [...Array(9)].map((_, c) => k * 9 + c) });
+for (let k = 0; k < 9; k++) TU.push({ kind: "column", k, cells: [...Array(9)].map((_, r) => r * 9 + k) });
+const uName = u => u.kind === "box" ? `the ${BOXNAME[u.k]} box` : `${u.kind} ${u.k + 1}`;
+const cName = i => `row ${row(i) + 1}, column ${col(i) + 1}`;
+const N = d => `<b>${d}</b>`;
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const andList = a => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+const digitsOf = m => [...Array(9)].map((_, k) => k + 1).filter(d => m & (1 << d));
+let teach = null; // { t, d, fix, unit:Set, src:Set, kind, html }
+
+function findSingle(vals, cand) {
+  const hidden = kind => {
+    for (const u of TU) if (u.kind === kind) for (let d = 1; d <= 9; d++) {
+      if (u.cells.some(i => vals[i] === d)) continue;
+      const spots = u.cells.filter(i => cand[i] & (1 << d));
+      if (spots.length === 1) return { type: "hidden", i: spots[0], d, u };
+    }
+    return null;
+  };
+  const naked = () => { for (let i = 0; i < 81; i++) if (!vals[i] && bits(cand[i]) === 1) return { type: "naked", i, d: low(cand[i]) }; return null; };
+  return hidden("box") || naked() || hidden("row") || hidden("column");
 }
 
+function findElim(cand) {
+  // Pointing / claiming: a number confined to one line within a box (or one box within a line).
+  for (const u of TU) for (let d = 1; d <= 9; d++) {
+    const cs = u.cells.filter(i => cand[i] & (1 << d)); if (cs.length < 2) continue;
+    for (const v of TU) if (v !== u && cs.every(i => v.cells.includes(i))) {
+      const gone = v.cells.filter(j => !cs.includes(j) && cand[j] & (1 << d));
+      if (!gone.length) continue;
+      for (const j of gone) cand[j] &= ~(1 << d);
+      const rm = gone.map(j => [j, 1 << d]);
+      const text = v.kind === "box"
+        ? `In ${uName(u)}, ${N(d)} has to go inside ${uName(v)}, so no other square in that box can be ${N(d)}.`
+        : `In ${uName(u)}, ${N(d)} has to go in ${uName(v)}, so no other square in ${uName(v)} can be ${N(d)}.`;
+      return { text, cells: cs, rm };
+    }
+  }
+  // Naked pairs: two squares in a unit that can only be the same two numbers.
+  for (const u of TU) for (let a = 0; a < 9; a++) {
+    const m = cand[u.cells[a]]; if (bits(m) !== 2) continue;
+    for (let b = a + 1; b < 9; b++) if (cand[u.cells[b]] === m) {
+      const pair = [u.cells[a], u.cells[b]], gone = u.cells.filter(j => !pair.includes(j) && cand[j] & m);
+      if (!gone.length) continue;
+      for (const j of gone) cand[j] &= ~m;
+      const [x, y] = digitsOf(m);
+      return { text: `${cName(pair[0])} and ${cName(pair[1])} can only be ${N(x)} or ${N(y)}, so no other square in ${uName(u)} can be ${N(x)} or ${N(y)}.`, cells: pair, rm: gone.map(j => [j, m]) };
+    }
+  }
+  return null;
+}
+
+function explainStep(vals) {
+  const cand = new Array(81).fill(0);
+  for (let i = 0; i < 81; i++) if (!vals[i]) { let m = 0x3FE; for (const j of PEERS[i]) if (vals[j]) m &= ~(1 << vals[j]); cand[i] = m; }
+  const cand0 = cand.slice(), steps = [];
+  // Keep only the elimination steps this placement actually depends on.
+  const prune = s => {
+    const holds = list => {
+      const c = cand0.slice();
+      for (const e of list) for (const [j, m] of e.rm) c[j] &= ~m;
+      return s.type === "naked" ? bits(c[s.i]) === 1 : s.u.cells.filter(i => c[i] & (1 << s.d)).length === 1;
+    };
+    let keep = steps.slice();
+    for (const e of steps) { const without = keep.filter(x => x !== e); if (holds(without)) keep = without; }
+    return keep;
+  };
+  for (let guard = 0; guard < 300; guard++) {
+    const s = findSingle(vals, cand);
+    if (s) return { ...s, steps: prune(s) };
+    const e = findElim(cand);
+    if (!e) break;
+    steps.push(e);
+  }
+  // Nothing the basic techniques can reach: point at the square with the fewest options.
+  let best = -1;
+  for (let i = 0; i < 81; i++) if (!vals[i] && (best < 0 || bits(cand[i]) < bits(cand[best]))) best = i;
+  return best < 0 ? null : { type: "advanced", i: best, opts: digitsOf(cand[best]) };
+}
+
+function buildTeach() {
+  // A wrong number first: any reasoning built on it would be wrong too.
+  const wrongs = [...Array(81).keys()].filter(i => !S.puzzle[i] && S.values[i] && S.values[i] !== S.solution[i]);
+  if (wrongs.length) {
+    const t = wrongs.includes(sel) ? sel : wrongs[0], v = S.values[t];
+    const clash = PEERS[t].find(j => S.values[j] === v);
+    let html, src = new Set(), unit = new Set();
+    if (clash != null) {
+      const where = row(clash) === row(t) ? "row" : col(clash) === col(t) ? "column" : "box";
+      const u = TU.find(x => x.kind === where && x.cells.includes(t));
+      u.cells.forEach(i => unit.add(i)); src.add(clash);
+      html = `<p>The ${N(v)} at ${cName(t)} can't be right: there's already a ${N(v)} in its ${where}.</p>`;
+    } else {
+      html = `<p>The ${N(v)} at ${cName(t)} isn't right. Nothing clashes with it yet, but it would block the solution later on.</p>`;
+    }
+    return { t, d: S.solution[t], fix: true, unit, src, kind: "Check this square", html };
+  }
+  const s = explainStep(S.values);
+  if (!s) return null;
+  const t = s.i, d = S.solution[t], unit = new Set(), src = new Set();
+  let main;
+  if (s.type === "hidden") {
+    s.u.cells.forEach(i => unit.add(i));
+    // The placed copies of d that rule out the other empty squares in this unit.
+    for (const i of s.u.cells) if (i !== t && !S.values[i]) { const j = PEERS[i].find(p => S.values[p] === d && !s.u.cells.includes(p)); if (j != null) src.add(j); }
+    main = s.steps.length
+      ? `Now ${N(d)} can only go in one spot in ${uName(s.u)}: ${cName(t)}.`
+      : `${N(d)} can only go in one spot in ${uName(s.u)}. Every other empty square there already sees a ${N(d)} in its row, column or box (outlined).`;
+  } else if (s.type === "naked") {
+    PEERS[t].forEach(i => unit.add(i));
+    const others = [1, 2, 3, 4, 5, 6, 7, 8, 9].filter(x => x !== d);
+    main = s.steps.length
+      ? `Now ${cName(t)} has only one number left: ${N(d)}.`
+      : `${cName(t)} can only be ${N(d)}. Its row, column and box already contain ${andList(others.map(N))}.`;
+  } else {
+    PEERS[t].forEach(i => unit.add(i));
+    return { t, d, fix: false, unit, src, kind: "Tough spot",
+      html: `<p>There's no simple step left here; this puzzle needs a more advanced technique. The square with the fewest options is ${cName(t)}, which could be ${andList(s.opts.map(N)).replace(" and ", " or ")}. It's ${N(d)}.</p>` };
+  }
+  let html = "";
+  if (s.steps.length) {
+    const shown = s.steps.slice(0, 3);
+    for (const e of shown) e.cells.forEach(i => src.add(i));
+    html += `<p>First, rule some numbers out:</p><ol>${shown.map(e => `<li>${cap(e.text)}</li>`).join("")}</ol>`;
+    if (s.steps.length > 3) html += `<p>…and ${s.steps.length - 3} more steps like these.</p>`;
+  }
+  html += `<p>${cap(main)}</p>`;
+  const kind = s.steps.length ? "Hint · rule out, then place" : s.type === "hidden" ? `Hint · only spot in the ${s.u.kind}` : "Hint · only number left";
+  return { t, d, fix: false, unit, src, kind, html };
+}
+
+function hint() {
+  if (blocked()) return;
+  // Pressing Hint again while a hint is showing fills it in.
+  if (teach && S.values[teach.t] !== teach.d) { fillHint(); return; }
+  const h = buildTeach();
+  if (!h) return;
+  teach = h; sel = h.t; S.hints++;
+  save(); render();
+  cells[h.t].classList.remove("flash"); void cells[h.t].offsetWidth; cells[h.t].classList.add("flash");
+  $("hintbox").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function fillHint() {
+  if (blocked() || !teach) return;
+  const t = teach.t, d = teach.d;
+  if (S.values[t] === d) { teach = null; render(); return; }
+  const ch = []; place(t, d, ch); history.push(ch); sel = t;
+  cells[t].classList.remove("pop"); void cells[t].offsetWidth; cells[t].classList.add("pop");
+  after();
+}
+$("hintFill").onclick = fillHint;
+$("hintClose").onclick = () => { teach = null; render(); board.focus({ preventScroll: true }); };
+
 function after() {
+  teach = null; // any change to the board ends the current hint
   if (!S.done && S.values.every((v, i) => v === S.solution[i])) {
     S.done = true; stopClock();
     const prev = games.filter(g => g.diff === S.diff && g.player === player).map(g => g.seconds);
@@ -855,7 +1044,7 @@ function switchTo(name) {
   }
   $("pmodal").hidden = true;
   recView = name;
-  stopClock(); history = []; sel = 40; notesMode = false; $("win").hidden = true;
+  stopClock(); history = []; sel = 40; notesMode = false; teach = null; $("win").hidden = true;
   const s = parseGame(lsGet(gameKey(name)));
   renderWho(); renderRecord();
   if (s) { S = s; render(); if (S.done) showWin(); else startClock(); }
@@ -972,7 +1161,8 @@ async function writeGames(list) {
     } catch (e) {
       if (attempt === 0) { await new Promise(r => setTimeout(r, 800 + Math.random() * 800)); continue; }
       // Stays in this browser without a uid, so the next sync uploads it.
-      setSync("slow", "Couldn't upload your latest game yet; it's saved here and will sync next time");
+      if (!navigator.onLine) setOffline();
+      else setSync("slow", "Couldn't upload your latest game yet; it's saved here and will sync next time");
     }
   }
 }
@@ -995,11 +1185,17 @@ async function pullGames() {
     setSync("account", "Synced · " + email);
     if (missing.length) await writeGames(missing);
   } catch (e) {
-    setSync("slow", "Can't reach your account right now; showing games saved in this browser");
+    if (!navigator.onLine) setOffline();
+    else setSync("slow", "Can't reach your account right now; showing games saved in this browser");
   } finally {
     pulling = false;
     if (pullAgain) { pullAgain = false; pullGames(); }
   }
+}
+
+function setOffline() {
+  const waiting = games.filter(g => !g.uid).length;
+  setSync("slow", "Offline · " + (waiting ? `${plural(waiting, "solve")} saved here, will sync when you're back online` : "solves are saved here and sync when you're back online"));
 }
 
 function renderAcctButton() {
@@ -1013,6 +1209,7 @@ function startCloud() {
   if (!url || !key || /YOUR_/.test(url + key) || !window.supabase || typeof window.supabase.createClient !== "function") {
     setSync("local", LOCAL_TEXT); return;
   }
+  if (!navigator.onLine) setOffline();
   try {
     // Implicit flow: a magic link works even if it opens in a different browser than the one that asked for it.
     sb = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } });
@@ -1027,6 +1224,9 @@ function startCloud() {
       // Take this account's games off the device; anything never uploaded stays.
       games = games.filter(g => !g.uid); saveLocalGames(); renderRecord();
       setSync("local", LOCAL_TEXT + " · sign in to sync");
+    } else if (!sbUser && !navigator.onLine) {
+      // Offline with an expired sign-in: the session is still stored and refreshes once back online.
+      setOffline();
     }
     if (!$("amodal").hidden && sbUser) closeAcct();
     // Don't call Supabase inside this callback (it can deadlock the auth lock); defer instead.
@@ -1040,7 +1240,12 @@ function startCloud() {
     setTimeout(() => { openAcct(); showAcctErr(msg + ". Ask for a new code below."); }, 300);
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pullGames(); });
-  window.addEventListener("online", pullGames);
+  window.addEventListener("online", () => {
+    if (sbUser) pullGames();
+    // Expired while offline: refresh now (fires TOKEN_REFRESHED, which syncs) instead of waiting for the timer.
+    else sb.auth.refreshSession().catch(() => {}).finally(() => { if (!sbUser) setSync("local", LOCAL_TEXT + " · sign in to sync"); });
+  });
+  window.addEventListener("offline", () => { if (sbUser) setOffline(); });
 }
 
 function initCloud() {
@@ -1287,6 +1492,10 @@ try {
 renderWho();
 renderRecord();
 initCloud();
+// Offline play: cache the app so the Home Screen version opens without a connection.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 if (player) {
   rememberPlayer(player);
   S = parseGame(lsGet(gameKey(player)));

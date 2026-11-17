@@ -3,12 +3,19 @@
 A single-page Sudoku game: five levels, shareable puzzle codes, and a solve record that syncs between devices
 through a free Supabase account. It works without an account too: everything is always saved in the browser.
 
+- **Teaching hints.** Hint explains the next logical step instead of just filling in a square, for example
+  "7 can only go in one spot in this box". It highlights the squares involved, and **Fill in** (or pressing Hint
+  again) places the number. If a wrong number is on the board, the hint points it out first.
+- **Works offline.** After one visit, the app (including the Home Screen version) opens with no connection.
+  Puzzles solved offline sync when the device is back online.
+
 | File | What it is |
 | --- | --- |
 | `index.html` | The whole game |
 | `config.js` | Your Supabase URL and public key (safe to commit) |
 | `supabase/schema.sql` | The `games` table and its Row Level Security policies |
 | `manifest.webmanifest`, `icons/` | Home Screen install |
+| `sw.js` | Service worker that saves the app for offline play |
 
 ## 1. Publish on GitHub Pages
 
