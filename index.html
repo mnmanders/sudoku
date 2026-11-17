@@ -106,7 +106,12 @@ h1 span{font-family:var(--f-pencil); font-weight:700; color:var(--pencil); font-
 .cell.same{background:var(--same)}
 .cell.sel{background:var(--mark)}
 .cell.bad .v{color:var(--bad)}
-.cell.bad{background-image:linear-gradient(135deg,transparent 46%,var(--badbg) 46%,var(--badbg) 54%,transparent 54%)}
+.cell.bad:not(.sel){background-color:var(--badbg)}
+.cell.bad::after{
+  content:""; position:absolute; left:14%; right:14%; top:50%; pointer-events:none;
+  height:max(2px, calc(100cqi / 9 * .065)); margin-top:calc(100cqi / 9 * -.0325);
+  background:var(--bad); border-radius:2px; transform:rotate(-45deg);
+}
 .v{font-size:calc(100cqi / 9 * .56); line-height:1; color:var(--pencil); font-family:var(--f-pencil); font-weight:700; transform:translateY(.04em)}
 .cell.given .v{font-family:var(--f-given); font-weight:600; color:var(--ink); transform:none; font-size:calc(100cqi / 9 * .5)}
 .notes{position:absolute; inset:6%; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); pointer-events:none}
@@ -611,15 +616,9 @@ for (let d = 1; d <= 9; d++) {
   pad.appendChild(b); padBtns[d] = b;
 }
 
-function conflicts() {
-  const bad = new Array(81).fill(false);
-  for (let i = 0; i < 81; i++) if (S.values[i]) for (const j of PEERS[i]) if (S.values[j] === S.values[i]) { bad[i] = true; break; }
-  return bad;
-}
-
 function render() {
   if (!S) return;
-  const bad = conflicts(), sv = S.values[sel];
+  const sv = S.values[sel];
   const counts = new Array(10).fill(0);
   for (let i = 0; i < 81; i++) {
     const el = cells[i], v = S.values[i], given = !!S.puzzle[i];
@@ -628,7 +627,8 @@ function render() {
     el.classList.toggle("sel", i === sel);
     el.classList.toggle("peer", i !== sel && PEERS[sel].includes(i));
     el.classList.toggle("same", i !== sel && sv > 0 && v === sv);
-    el.classList.toggle("bad", bad[i] && !given);
+    // Red strike on any wrong entry (same check as the Wrong counter); that includes the wrong half of any clash.
+    el.classList.toggle("bad", !given && v > 0 && v !== S.solution[i]);
     el.firstChild.textContent = v || "";
     const ns = el.lastChild.children, m = v ? 0 : S.notes[i];
     for (let d = 1; d <= 9; d++) {
