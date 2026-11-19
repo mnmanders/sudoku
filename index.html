@@ -161,6 +161,13 @@ h1 span{font-family:var(--f-pencil); font-weight:700; color:var(--pencil); font-
 /* Side rail */
 .rail{display:grid; gap:16px; max-width:520px; width:100%; margin-inline:auto; min-width:0}
 .boardcol{display:grid; gap:12px; align-content:start; min-width:0}
+.newp{max-width:520px; width:100%; margin-inline:auto; min-width:0}
+/* One column (phones, portrait iPad): board, hint, then tools + numbers, then new puzzle / codes.
+   Wide screens: board, hint and new puzzle on the left; tools and numbers on the right. */
+@media (max-width:819px){
+  .boardcol{display:contents}
+  .boardwrap{order:1} .hintbox{order:2} .rail{order:3} .newp{order:4}
+}
 
 /* Teaching hint */
 .hintbox{
@@ -348,10 +355,7 @@ td .dim, td.dim{color:var(--muted)}
         <button class="btn" id="hintFill" type="button">Fill it in</button>
       </div>
     </div>
-   </div>
-
-    <div class="rail">
-      <div>
+    <div class="newp">
         <div class="label">New puzzle</div>
         <div class="seg" id="diff"></div>
         <div class="codebox">
@@ -364,8 +368,10 @@ td .dim, td.dim{color:var(--muted)}
           <button class="mini" type="submit">Play</button>
         </form>
         <p class="codemsg" id="codeMsg" hidden></p>
-      </div>
+    </div>
+   </div>
 
+    <div class="rail">
       <div class="tools">
         <button class="tool" id="undo" type="button" title="Undo (Ctrl+Z)">
           <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo
